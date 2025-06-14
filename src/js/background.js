@@ -1,259 +1,252 @@
-let flagLoader = false;
-let flagWork = false;
+let isWorking = false
 
-chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
-    sendProgress(message)
-    sendResponse(flagLoader);
-});
-
-function sendProgress(message) {
-    if (flagLoader) {
-        sendUserMessage({"message": "Progress", "content": message.percent});
-    } else if (message.success === false) {
-        flagLoader = false;
-        if (message.content) {
-            sendUserMessage({"message": "Error", "content": chrome.i18n.getMessage("message_userBreak")});
-        } else {
-            sendUserMessage({"message": "Error", "content": chrome.i18n.getMessage("message_errorLoad")});
-        }
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'start_download') {
+    if (!isWorking) {
+      startDownload(message.tabId)
+        .then(() => sendResponse({ success: true }))
+        .catch(error => {
+          console.error('Download error:', error)
+          sendResponse({ success: false, error: error.message })
+        })
     } else {
-        sendUserMessage({"message": "Break"});
+      sendResponse({ success: false, error: 'Already working' })
     }
-}
-
-function sendUserMessage(message) {
-    self.clients.matchAll().then(function (clients) {
-        clients.forEach(function (client) {
-            client.postMessage(message);
-        });
-    });
-}
-
-self.addEventListener('message', async (event) => {
-    if (event.data.message === "start_load") {
-        flagLoader = !flagLoader;
-        if (flagLoader) {
-            await preparationForVideoUpload(event.data.content)
-        }
-    }
-});
-
-async function preparationForVideoUpload(tab_ID) {
-    const targetTab = {tabId: tab_ID, allFrames: false};
-    chrome.scripting.executeScript({
-        target: targetTab,
-        func: blobIsLoad
-    }).then(async (result) => {
-        if (result[0].result) {
-            await startLoadVideo(tab_ID)
-        } else {
-            chrome.scripting.executeScript({
-                target: targetTab,
-                func: loadBlob
-            }).then(async () => await startLoadVideo(tab_ID))
-        }
-    })
-}
-
-function blobIsLoad() {
-    return new Promise((resolve) => {
-        const script = document.querySelector('script[src*="src/js/injection_scripts/Blob.js"]');
-        if (script) {
-            resolve(true);
-        } else {
-            resolve(false)
-        }
-    });
-}
-
-function loadBlob() {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL('src/js/injection_scripts/Blob.js');
-        document.documentElement.appendChild(script);
-
-        script.onload = function () {
-            resolve(true);
-        };
-    });
-}
-
-async function startLoadVideo(tab_ID) {
-    console.log("startLoadVideo called");
-    if (flagWork) {
-        return
-    }
-    flagWork = true;
-    const key = tab_ID.toString();
-    const data = await chrome.storage.local.get([key]);
-    const video = data[key].dataVideo
-
-    if (data[key].displaySettings.load_all_series) {
-        const seasons = data[key].dataPlayer.seasons;
-        const episodes = data[key].dataPlayer.episodes;
-        const videoConfig = data[key].displaySettings;
-        for (let s of seasons.slice(seasons.indexOf(videoConfig.season_start))) {
-            let sliceIndex = (s === videoConfig.season_start) ? episodes[s].indexOf(videoConfig.episode_start) : 0;
-            for (let e of episodes[s].slice(sliceIndex)) {
-                if (!flagLoader) {
-                    break
-                }
-                const dict = {
-                    "film_id": video.film_id,
-                    "translator_id": videoConfig.translator_id,
-                    "season_id": s,
-                    "episode_id": e,
-                    "action": video.action,
-                    "quality": videoConfig.quality,
-                    "filename": video.filename
-                }
-                await initLoadVideo(tab_ID, dict)
-            }
-        }
-
-    } else {
-        const dict = {
-            "film_id": video.film_id,
-            "translator_id": video.translator_id,
-            "season_id": video.season_id,
-            "episode_id": video.episode_id,
-            "action": video.action,
-            "quality": data[key].displaySettings.quality,
-            "filename": video.filename
-        }
-        await initLoadVideo(tab_ID, dict)
-    }
-    flagLoader = false;
-    flagWork = false;
-    sendProgress("")
-}
-
-async function initLoadVideo(tab_ID, settingsVideo) {
-    const targetTab = {tabId: tab_ID, allFrames: false};
-
-    let urls = await chrome.scripting.executeScript({
-        target: targetTab,
-        func: injectLoader,
-        args: [settingsVideo],
-    })
-    let url_list = urls[0].result.url
-    if (!url_list) {
-        sendUserMessage({"message": "Error", "content": chrome.i18n.getMessage("message_noDataVideo")})
-        flagLoader = false;
-        return false
-    }
-    let filename = settingsVideo.filename;
-    if (settingsVideo.action === "get_movie") {
-        filename = filename + ".mp4";
-    } else {
-        filename = filename + "_S" + settingsVideo.season_id + "E" + settingsVideo.episode_id + ".mp4"
-    }
-    for (const url of url_list) {
-        let success = await chrome.scripting.executeScript({
-            target: targetTab,
-            func: loadVideo,
-            args: [url, filename]
-        });
-        if (success) break
-        console.log("success - false")
-    }
-
     return true
+  }
+})
+
+async function startDownload(tabId) {
+  if (isWorking) return
+  isWorking = true
+
+  try {
+    const targetTab = { tabId: tabId, allFrames: false }
+
+    // Отримати дані з storage
+    const data = await chrome.storage.local.get([tabId.toString()])
+    const settings = data[tabId.toString()]
+
+    if (!settings) {
+      throw new Error('No settings found')
+    }
+
+    const downloads = []
+
+    if (settings.displaySettings.load_all_series) {
+      // Завантажити всі серії
+      const seasons = settings.dataPlayer.seasons
+      const episodes = settings.dataPlayer.episodes
+      const startSeasonIndex = seasons.indexOf(
+        settings.displaySettings.season_start,
+      )
+
+      for (let i = startSeasonIndex; i < seasons.length; i++) {
+        const seasonId = seasons[i]
+        const seasonEpisodes = episodes[seasonId]
+        const startEpisodeIndex =
+          i === startSeasonIndex
+            ? seasonEpisodes.indexOf(settings.displaySettings.episode_start)
+            : 0
+
+        for (let j = startEpisodeIndex; j < seasonEpisodes.length; j++) {
+          const episodeId = seasonEpisodes[j]
+          downloads.push({
+            film_id: settings.dataVideo.film_id,
+            translator_id: settings.displaySettings.translator_id,
+            season_id: seasonId,
+            episode_id: episodeId,
+            action: settings.dataVideo.action,
+            quality: settings.displaySettings.quality,
+            filename: settings.dataVideo.filename,
+          })
+        }
+      }
+    } else {
+      // Завантажити одну серію
+      downloads.push({
+        film_id: settings.dataVideo.film_id,
+        translator_id: settings.displaySettings.translator_id,
+        season_id: settings.dataVideo.season_id,
+        episode_id: settings.dataVideo.episode_id,
+        action: settings.dataVideo.action,
+        quality: settings.displaySettings.quality,
+        filename: settings.dataVideo.filename,
+      })
+    }
+
+    console.log(`Starting ${downloads.length} downloads`)
+
+    // Запустити всі завантаження паралельно
+    const downloadPromises = downloads.map(downloadData =>
+      processDownload(tabId, downloadData),
+    )
+
+    await Promise.allSettled(downloadPromises)
+    console.log('All downloads processed')
+  } finally {
+    isWorking = false
+  }
 }
 
-function injectLoader(videoSettings) {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL('src/js/injection_scripts/loader.js');
-        script.dataset.args = JSON.stringify(videoSettings);
-        document.documentElement.appendChild(script);
+async function processDownload(tabId, downloadData) {
+  try {
+    const targetTab = { tabId: tabId, allFrames: false }
 
-        const intervalId = setInterval(() => {
-            if (script.dataset.result !== undefined) {
-                clearInterval(intervalId);
-                const result = JSON.parse(script.dataset.result);
-                document.documentElement.removeChild(script);
-                resolve(result);
-            }
-        }, 30);
-    });
-}
-
-
-function loadVideo(url, filename) {
-    return new Promise((resolve) => {
-        console.log(filename);
-        console.log(url);
-        console.log("load_start");
-        let flagLoader = true;
-        let isUser = false;
-        const controller = new AbortController();
-
-        fetch(url, {signal: controller.signal})
-            .then(response => {
-                const totalSize = response.headers.get('content-length');
-                let loadedSize = 0;
-                if (!totalSize) throw new Error("Empty object");
-
-                const progressCallback = (event) => {
-                    if (event.lengthComputable) {
-                        loadedSize = event.loaded;
-                        const percentComplete = (loadedSize / totalSize) * 100;
-                        chrome.runtime.sendMessage({
-                            "loaded": loadedSize,
-                            "size": totalSize,
-                            "percent": percentComplete.toFixed(2)
-                        }, function (response) {
-                            flagLoader = response
-                        });
-                        if (!flagLoader) {
-                            controller.abort();
-                            isUser = true;
-                            console.log('Загрузка прервана пользователем.');
-                        }
-                    }
-                };
-
-                // Создание объекта Blob с обратным вызовом прогресса
-                return new Promise((resolve, reject) => {
-                    const reader = response.body.getReader();
-                    const chunks = [];
-
-                    const pump = () => {
-                        reader.read().then(({done, value}) => {
-                            if (done) {
-                                resolve(new Blob(chunks));
-                            } else {
-                                chunks.push(value);
-                                loadedSize += value.byteLength;
-                                progressCallback({loaded: loadedSize, lengthComputable: true});
-                                pump();
-                            }
-                        }).catch(reject);
-                    };
-
-                    pump();
-                });
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                a.style.display = 'none';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                console.log("success load");
-                resolve(true);
-            })
-            .catch(() => {
-                console.log("error load");
-                chrome.runtime.sendMessage({"success": false, "content": isUser}, function (response) {
-                });
-                resolve(false);
-            });
-
+    // Отримати URL для завантаження
+    const result = await chrome.scripting.executeScript({
+      target: targetTab,
+      func: getVideoURLWithFetch,
+      args: [downloadData],
     })
+
+    const urls = result[0].result
+    if (!urls || urls.length === 0) {
+      console.error(
+        `No URLs found for S${downloadData.season_id}E${downloadData.episode_id}`,
+      )
+      return
+    }
+
+    // Створити ім'я файлу
+    let filename = downloadData.filename.replace(/[<>:"/\\|?*]/g, '_')
+    if (downloadData.action === 'get_movie') {
+      filename += '.mp4'
+    } else {
+      filename += `_S${downloadData.season_id}E${downloadData.episode_id}.mp4`
+    }
+
+    // Спробувати завантажити з першого доступного URL
+    for (const url of urls) {
+      try {
+        const downloadId = await new Promise((resolve, reject) => {
+          chrome.downloads.download(
+            {
+              url: url,
+              filename: filename,
+              saveAs: false,
+            },
+            downloadId => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message))
+              } else {
+                resolve(downloadId)
+              }
+            },
+          )
+        })
+
+        console.log(`Started download: ${filename} with ID: ${downloadId}`)
+        break
+      } catch (error) {
+        console.log(`Failed to download from ${url}:`, error.message)
+      }
+    }
+  } catch (error) {
+    console.error(
+      `Process download error for S${downloadData.season_id}E${downloadData.episode_id}:`,
+      error,
+    )
+  }
+}
+
+// Функція яка використовує нативний fetch API
+function getVideoURLWithFetch(downloadData) {
+  return new Promise(async resolve => {
+    try {
+      const t = new Date().getTime()
+
+      // Отримати значення ctrl_favs
+      let favsValue = ''
+      try {
+        const favsElement = document.getElementById('ctrl_favs')
+        if (favsElement) {
+          favsValue = favsElement.value
+        }
+      } catch (e) {
+        console.log('Could not get ctrl_favs value:', e)
+      }
+
+      // Створити FormData для POST запиту
+      const formData = new FormData()
+      formData.append('id', downloadData.film_id)
+      formData.append('translator_id', downloadData.translator_id)
+      formData.append('season', downloadData.season_id)
+      formData.append('episode', downloadData.episode_id)
+      formData.append('favs', favsValue)
+      formData.append('action', downloadData.action)
+
+      const response = await fetch(`/ajax/get_cdn_series/?t=${t}`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (!data.success || !data.url) {
+        console.error('Invalid response data:', data)
+        resolve([])
+        return
+      }
+
+      // Очистити та декодувати URL (використовуємо функцію з оригінального коду)
+      let cleanUrl = data.url
+      const trashList = [
+        '//_//QEBAQEAhIyMhXl5e',
+        '//_//Xl5eIUAjIyEhIyM=',
+        '//_//JCQhIUAkJEBeIUAjJCRA',
+        '//_//IyMjI14hISMjIUBA',
+        '//_//JCQjISFAIyFAIyM=',
+      ]
+
+      // Очистити сміття
+      while (
+        trashList.filter(subString => cleanUrl.includes(subString)).length !== 0
+      ) {
+        cleanUrl = cleanUrl.replace(new RegExp(trashList.join('|'), 'g'), '')
+      }
+      cleanUrl = cleanUrl.replace('#h', '')
+      cleanUrl = atob(cleanUrl)
+
+      // Парсити URL за якістю
+      const urlsByQuality = {}
+      cleanUrl.split(',').forEach(item => {
+        const qualityMatch = item.match(/\[.*?]/)
+        if (qualityMatch) {
+          const quality = qualityMatch[0]
+          const urls = item
+            .slice(quality.length)
+            .split(/\sor\s/)
+            .filter(url => /https?:\/\/.*mp4$/.test(url))
+          if (urls.length > 0) {
+            urlsByQuality[quality] = urls
+          }
+        }
+      })
+
+      // Знайти URL для потрібної якості
+      const targetQuality = `[${downloadData.quality}]`
+      if (urlsByQuality[targetQuality]) {
+        resolve(urlsByQuality[targetQuality])
+      } else {
+        // Взяти першу доступну якість
+        const qualities = Object.keys(urlsByQuality)
+        if (qualities.length > 0) {
+          resolve(urlsByQuality[qualities[0]])
+        } else {
+          resolve([])
+        }
+      }
+    } catch (error) {
+      console.error('Error in getVideoURLWithFetch:', error)
+      resolve([])
+    }
+  })
 }
