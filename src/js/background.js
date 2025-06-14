@@ -1,4 +1,5 @@
 let isWorking = false
+let failedDownloads = []
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'start_download') {
@@ -19,6 +20,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function startDownload(tabId) {
   if (isWorking) return
   isWorking = true
+  failedDownloads = []
 
   try {
     const targetTab = { tabId: tabId, allFrames: false }
@@ -77,12 +79,37 @@ async function startDownload(tabId) {
 
     console.log(`Starting ${downloads.length} downloads`)
 
-    // Запустити всі завантаження паралельно
-    const downloadPromises = downloads.map(downloadData =>
-      processDownload(tabId, downloadData),
+    // Запустити всі завантаження паралельно з невеликою затримкою
+    const downloadPromises = downloads.map(
+      (downloadData, index) =>
+        new Promise(resolve => {
+          setTimeout(() => {
+            processDownload(tabId, downloadData).then(resolve)
+          }, index * 500) // 500ms затримка між запитами
+        }),
     )
 
     await Promise.allSettled(downloadPromises)
+
+    // Спробувати повторно завантажити невдалі серії
+    if (failedDownloads.length > 0) {
+      console.log(
+        `Retrying ${failedDownloads.length} failed downloads after 5 seconds...`,
+      )
+      await new Promise(resolve => setTimeout(resolve, 5000)) // Чекати 5 секунд
+
+      const retryPromises = failedDownloads.map(
+        (downloadData, index) =>
+          new Promise(resolve => {
+            setTimeout(() => {
+              processDownloadWithRetry(tabId, downloadData, 3).then(resolve) // 3 спроби
+            }, index * 1000) // 1 секунда між повторними спробами
+          }),
+      )
+
+      await Promise.allSettled(retryPromises)
+    }
+
     console.log('All downloads processed')
   } finally {
     isWorking = false
@@ -100,11 +127,26 @@ async function processDownload(tabId, downloadData) {
       args: [downloadData],
     })
 
-    const urls = result[0].result
+    const response = result[0].result
+
+    if (!response.success) {
+      console.log(
+        `Failed to get URLs for S${downloadData.season_id}E${downloadData.episode_id}: ${response.error}`,
+      )
+
+      // Додати до списку невдалих завантажень для повторної спроби
+      if (response.shouldRetry) {
+        failedDownloads.push(downloadData)
+      }
+      return
+    }
+
+    const urls = response.urls
     if (!urls || urls.length === 0) {
       console.error(
         `No URLs found for S${downloadData.season_id}E${downloadData.episode_id}`,
       )
+      failedDownloads.push(downloadData)
       return
     }
 
@@ -117,6 +159,7 @@ async function processDownload(tabId, downloadData) {
     }
 
     // Спробувати завантажити з першого доступного URL
+    let downloadStarted = false
     for (const url of urls) {
       try {
         const downloadId = await new Promise((resolve, reject) => {
@@ -136,21 +179,109 @@ async function processDownload(tabId, downloadData) {
           )
         })
 
-        console.log(`Started download: ${filename} with ID: ${downloadId}`)
+        console.log(`✅ Started download: ${filename} with ID: ${downloadId}`)
+        downloadStarted = true
         break
       } catch (error) {
-        console.log(`Failed to download from ${url}:`, error.message)
+        console.log(`❌ Failed to download from ${url}:`, error.message)
       }
+    }
+
+    if (!downloadStarted) {
+      console.error(
+        `❌ All URLs failed for S${downloadData.season_id}E${downloadData.episode_id}`,
+      )
+      failedDownloads.push(downloadData)
     }
   } catch (error) {
     console.error(
-      `Process download error for S${downloadData.season_id}E${downloadData.episode_id}:`,
+      `❌ Process download error for S${downloadData.season_id}E${downloadData.episode_id}:`,
       error,
     )
+    failedDownloads.push(downloadData)
   }
 }
 
-// Функція яка використовує нативний fetch API
+async function processDownloadWithRetry(tabId, downloadData, maxRetries) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    console.log(
+      `🔄 Retry attempt ${attempt}/${maxRetries} for S${downloadData.season_id}E${downloadData.episode_id}`,
+    )
+
+    try {
+      const targetTab = { tabId: tabId, allFrames: false }
+
+      const result = await chrome.scripting.executeScript({
+        target: targetTab,
+        func: getVideoURLWithFetch,
+        args: [downloadData],
+      })
+
+      const response = result[0].result
+
+      if (response.success && response.urls && response.urls.length > 0) {
+        // Створити ім'я файлу
+        let filename = downloadData.filename.replace(/[<>:"/\\|?*]/g, '_')
+        if (downloadData.action === 'get_movie') {
+          filename += '.mp4'
+        } else {
+          filename += `_S${downloadData.season_id}E${downloadData.episode_id}.mp4`
+        }
+
+        // Спробувати завантажити
+        for (const url of response.urls) {
+          try {
+            const downloadId = await new Promise((resolve, reject) => {
+              chrome.downloads.download(
+                {
+                  url: url,
+                  filename: filename,
+                  saveAs: false,
+                },
+                downloadId => {
+                  if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message))
+                  } else {
+                    resolve(downloadId)
+                  }
+                },
+              )
+            })
+
+            console.log(
+              `✅ Retry successful: ${filename} with ID: ${downloadId}`,
+            )
+            return // Успішно завантажено
+          } catch (error) {
+            console.log(`❌ Retry download failed from ${url}:`, error.message)
+          }
+        }
+      }
+
+      if (attempt < maxRetries) {
+        // Чекати перед наступною спробою (експоненційна затримка)
+        const delay = Math.pow(2, attempt) * 1000
+        console.log(`⏳ Waiting ${delay}ms before next retry...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    } catch (error) {
+      console.error(
+        `❌ Retry error for S${downloadData.season_id}E${downloadData.episode_id}:`,
+        error,
+      )
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  console.error(
+    `❌ All retry attempts failed for S${downloadData.season_id}E${downloadData.episode_id}`,
+  )
+}
+
+// Функція яка використовує нативний fetch API з покращеною обробкою помилок
 function getVideoURLWithFetch(downloadData) {
   return new Promise(async resolve => {
     try {
@@ -185,18 +316,27 @@ function getVideoURLWithFetch(downloadData) {
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const shouldRetry = response.status >= 500 || response.status === 429 // Server errors or rate limiting
+        resolve({
+          success: false,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+          shouldRetry: shouldRetry,
+        })
+        return
       }
 
       const data = await response.json()
 
       if (!data.success || !data.url) {
-        console.error('Invalid response data:', data)
-        resolve([])
+        resolve({
+          success: false,
+          error: 'Invalid response data',
+          shouldRetry: true,
+        })
         return
       }
 
-      // Очистити та декодувати URL (використовуємо функцію з оригінального коду)
+      // Очистити та декодувати URL
       let cleanUrl = data.url
       const trashList = [
         '//_//QEBAQEAhIyMhXl5e',
@@ -233,20 +373,37 @@ function getVideoURLWithFetch(downloadData) {
 
       // Знайти URL для потрібної якості
       const targetQuality = `[${downloadData.quality}]`
+      let finalUrls = []
+
       if (urlsByQuality[targetQuality]) {
-        resolve(urlsByQuality[targetQuality])
+        finalUrls = urlsByQuality[targetQuality]
       } else {
         // Взяти першу доступну якість
         const qualities = Object.keys(urlsByQuality)
         if (qualities.length > 0) {
-          resolve(urlsByQuality[qualities[0]])
-        } else {
-          resolve([])
+          finalUrls = urlsByQuality[qualities[0]]
         }
+      }
+
+      if (finalUrls.length > 0) {
+        resolve({
+          success: true,
+          urls: finalUrls,
+        })
+      } else {
+        resolve({
+          success: false,
+          error: 'No valid URLs found',
+          shouldRetry: true,
+        })
       }
     } catch (error) {
       console.error('Error in getVideoURLWithFetch:', error)
-      resolve([])
+      resolve({
+        success: false,
+        error: error.message,
+        shouldRetry: true,
+      })
     }
   })
 }
