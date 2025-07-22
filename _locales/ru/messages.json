@@ -20,15 +20,6 @@
   "popup_infoTitle": {
     "message": "Начать загрузку сериала с:"
   },
-  "popup_createFolder": {
-    "message": "Создать отдельную папку"
-  },
-  "popup_selectDirectory": {
-    "message": "Выбрать папку"
-  },
-  "popup_parallelDownloads": {
-    "message": "Паралельно:"
-  },
   "info_unknownVoice": {
     "message": "Неизвестная озвучка"
   },

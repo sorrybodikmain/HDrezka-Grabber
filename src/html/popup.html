@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
@@ -28,13 +28,6 @@
       </button>
 
       <div class="options">
-        <div class="checkbox-container">
-          <input id="create-folder" type="checkbox" />
-          <label data-resource="popup_createFolder" for="create-folder"
-            >Створити окрему папку</label
-          >
-        </div>
-
         <div style="display: none" class="checkbox-container serials">
           <input id="load-entire-series" type="checkbox" />
           <label data-resource="popup_loadAll" for="load-entire-series"
@@ -73,31 +66,6 @@
           >
           <select id="quality-select"></select>
         </div>
-
-        <div class="select-group">
-          <label data-resource="popup_parallelDownloads" for="parallel-select"
-            >Паралельні:</label
-          >
-          <select id="parallel-select">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="50" selected>50 (Максимум)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="save-button-container">
-        <button
-          style="display: none"
-          data-resource="popup_selectDirectory"
-          id="select-directory"
-          class="save-button"
-        ></button>
       </div>
     </div>
 

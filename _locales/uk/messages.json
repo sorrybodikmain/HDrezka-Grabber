@@ -18,16 +18,7 @@
     "message": "Епізод:"
   },
   "popup_infoTitle": {
-    "message": "Почати завантаження серії з:"
-  },
-  "popup_createFolder": {
-    "message": "Створити окрему папку"
-  },
-  "popup_selectDirectory": {
-    "message": "Вибрати папку"
-  },
-  "popup_parallelDownloads": {
-    "message": "Паралельно:"
+    "message": "Почати завантаження серій з:"
   },
   "info_unknownVoice": {
     "message": "Невідоме озвучення"

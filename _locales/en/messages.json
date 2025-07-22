@@ -20,15 +20,6 @@
   "popup_infoTitle": {
     "message": "Start downloading the series from:"
   },
-  "popup_createFolder": {
-    "message": "Create Separate Folder"
-  },
-  "popup_selectDirectory": {
-    "message": "Select Folder"
-  },
-  "popup_parallelDownloads": {
-    "message": "Parallel:"
-  },
   "info_unknownVoice": {
     "message": "Unknown translate"
   },

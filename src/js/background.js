@@ -23,8 +23,6 @@ async function startDownload(tabId) {
   failedDownloads = []
 
   try {
-    const targetTab = { tabId: tabId, allFrames: false }
-
     // Отримати дані з storage
     const data = await chrome.storage.local.get([tabId.toString()])
     const settings = data[tabId.toString()]

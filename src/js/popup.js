@@ -495,23 +495,15 @@ function displayEpisodes() {
 
 async function saveCurrentSettings() {
   try {
-    const create_folder = document.getElementById('create-folder')
     const downloadSeries = document.getElementById('load-entire-series')
     const change_quality = document.getElementById('quality-select')
-    const change_parallel = document.getElementById('parallel-select')
     const change_translate = document.getElementById('voice-select')
     const change_season = document.getElementById('season-select')
     const change_episode = document.getElementById('episode-select')
 
-    popupDisplaySettings.create_folder = create_folder
-      ? create_folder.checked
-      : false
     popupDisplaySettings.load_all_series = downloadSeries
       ? downloadSeries.checked
       : false
-    popupDisplaySettings.parallel_downloads = change_parallel
-      ? Number.parseInt(change_parallel.value)
-      : 2
     popupDisplaySettings.quality = change_quality ? change_quality.value : ''
 
     if (change_translate && change_translate.selectedOptions[0]) {
@@ -533,22 +525,16 @@ async function saveCurrentSettings() {
 
 function displayCurrentSettings() {
   try {
-    const create_folder = document.getElementById('create-folder')
     const downloadSeries = document.getElementById('load-entire-series')
     const change_quality = document.getElementById('quality-select')
-    const change_parallel = document.getElementById('parallel-select')
     const change_translate = document.getElementById('voice-select')
     const change_season = document.getElementById('season-select')
     const change_episode = document.getElementById('episode-select')
 
-    if (create_folder)
-      create_folder.checked = popupDisplaySettings.create_folder || false
     if (downloadSeries)
       downloadSeries.checked = popupDisplaySettings.load_all_series || false
     if (change_quality)
       change_quality.value = popupDisplaySettings.quality || ''
-    if (change_parallel)
-      change_parallel.value = popupDisplaySettings.parallel_downloads || 2
 
     if (popupDisplaySettings.translator_id && change_translate) {
       const translatorOption = change_translate.querySelector(
@@ -611,15 +597,15 @@ window.popupAPI = {
   getDisplaySettings: () => popupDisplaySettings,
   getDataVideo: () => popupDataVideo,
   getDataPlayer: () => popupDataPlayer,
-  saveData: saveData,
-  getNewSettings: getNewSettings,
-  showCheckBox: showCheckBox,
-  displayValuesSeason: displayValuesSeason,
-  displayQuality: displayQuality,
-  displaySeasons: displaySeasons,
-  displayEpisodes: displayEpisodes,
-  displayTranslators: displayTranslators,
-  saveCurrentSettings: saveCurrentSettings,
-  displayCurrentSettings: displayCurrentSettings,
-  updateDisplay: updateDisplay,
+  saveData,
+  getNewSettings,
+  showCheckBox,
+  displayValuesSeason,
+  displayQuality,
+  displaySeasons,
+  displayEpisodes,
+  displayTranslators,
+  saveCurrentSettings,
+  displayCurrentSettings,
+  updateDisplay,
 }

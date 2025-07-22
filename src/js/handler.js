@@ -15,7 +15,6 @@ function waitForAPI() {
 // Ініціалізація handler після завантаження API
 waitForAPI().then(api => {
   const grabBtn = document.getElementById('load_btn')
-  const create_folder = document.getElementById('create-folder')
   const downloadSeries = document.getElementById('load-entire-series')
   const fieldsContainer = document.getElementById('fields-container')
   const startDownloadText = document.querySelector('.container h2')
@@ -23,7 +22,6 @@ waitForAPI().then(api => {
   const change_episode = document.getElementById('episode-select')
   const change_translate = document.getElementById('voice-select')
   const change_quality = document.getElementById('quality-select')
-  const change_parallel = document.getElementById('parallel-select')
 
   if (!grabBtn) {
     console.error('Download button not found')
@@ -94,18 +92,6 @@ waitForAPI().then(api => {
     })
   }
 
-  if (create_folder) {
-    create_folder.addEventListener('change', async () => {
-      try {
-        const displaySettings = api.getDisplaySettings()
-        displaySettings.create_folder = create_folder.checked
-        await api.saveData()
-      } catch (error) {
-        console.error('Error in create folder change:', error)
-      }
-    })
-  }
-
   if (change_season) {
     change_season.addEventListener('change', async event => {
       try {
@@ -168,18 +154,6 @@ waitForAPI().then(api => {
         await api.saveData()
       } catch (error) {
         console.error('Error in quality change:', error)
-      }
-    })
-  }
-
-  if (change_parallel) {
-    change_parallel.addEventListener('change', async event => {
-      try {
-        const displaySettings = api.getDisplaySettings()
-        displaySettings.parallel_downloads = Number.parseInt(event.target.value)
-        await api.saveData()
-      } catch (error) {
-        console.error('Error in parallel change:', error)
       }
     })
   }
